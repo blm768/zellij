@@ -188,12 +188,7 @@ impl Keybinds {
 
     /// Converts a [`Key`] terminal event to a sequence of [`Action`]s according to the current
     /// [`InputMode`] and [`Keybinds`].
-    pub fn key_to_actions(
-        key: &Key,
-        input: Vec<u8>,
-        mode: &InputMode,
-        keybinds: &Keybinds,
-    ) -> Vec<Action> {
+    pub fn key_to_actions(key: &Key, mode: &InputMode, keybinds: &Keybinds) -> Vec<Action> {
         let mode_keybind_or_action = |action: Action| {
             keybinds
                 .0
@@ -204,9 +199,12 @@ impl Keybinds {
                 .cloned()
                 .unwrap_or_else(|| vec![action])
         };
+        let mut buf = Vec::new();
+        let crossterm_key = crate::input::cast_key_to_crossterm(*key);
+        Command::Key(crossterm_key).write_ansi(&mut buf);
         match *mode {
-            InputMode::Normal | InputMode::Locked => mode_keybind_or_action(Action::Write(input)),
-            InputMode::RenameTab => mode_keybind_or_action(Action::TabNameInput(input)),
+            InputMode::Normal | InputMode::Locked => mode_keybind_or_action(Action::Write(buf)),
+            InputMode::RenameTab => mode_keybind_or_action(Action::TabNameInput(buf)),
             _ => mode_keybind_or_action(Action::NoOp),
         }
     }

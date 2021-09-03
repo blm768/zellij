@@ -19,21 +19,33 @@ pub enum MouseEvent {
     Hold(Position),
 }
 
-impl From<termion::event::MouseEvent> for MouseEvent {
-    fn from(event: termion::event::MouseEvent) -> Self {
-        match event {
-            termion::event::MouseEvent::Press(button, x, y) => Self::Press(
+impl From<crossterm::event::MouseEvent> for MouseEvent {
+    fn from(event: crossterm::event::MouseEvent) -> Self {
+        use crossterm::event::MouseEventKind;
+        // TODO: still need subtractions or not?
+        let (x, y) = (event.column, event.row);
+        match event.kind {
+            MouseEventKind::Down(button) => Self::Press(
                 MouseButton::from(button),
                 Position::new((y.saturating_sub(1)) as i32, x.saturating_sub(1)),
             ),
-            termion::event::MouseEvent::Release(x, y) => Self::Release(Position::new(
+            MouseEventKind::Up(_button) => Self::Release(Position::new(
                 (y.saturating_sub(1)) as i32,
                 x.saturating_sub(1),
             )),
-            termion::event::MouseEvent::Hold(x, y) => Self::Hold(Position::new(
+            MouseEventKind::Drag(_button) => Self::Hold(Position::new(
                 (y.saturating_sub(1)) as i32,
                 x.saturating_sub(1),
             )),
+            MouseEventKind::Moved => todo!(),
+            MouseEventKind::ScrollDown => Self::Press(
+                MouseButton::WheelDown,
+                Position::new((y.saturating_sub(1)) as i32, x.saturating_sub(1)),
+            ),
+            MouseEventKind::ScrollUp => Self::Press(
+                MouseButton::WheelUp,
+                Position::new((y.saturating_sub(1)) as i32, x.saturating_sub(1)),
+            ),
         }
     }
 }
@@ -56,14 +68,13 @@ pub enum MouseButton {
     WheelDown,
 }
 
-impl From<termion::event::MouseButton> for MouseButton {
-    fn from(button: termion::event::MouseButton) -> Self {
+impl From<crossterm::event::MouseButton> for MouseButton {
+    fn from(button: crossterm::event::MouseButton) -> Self {
+        use crossterm::event::MouseButton as CButton;
         match button {
-            termion::event::MouseButton::Left => Self::Left,
-            termion::event::MouseButton::Right => Self::Right,
-            termion::event::MouseButton::Middle => Self::Middle,
-            termion::event::MouseButton::WheelUp => Self::WheelUp,
-            termion::event::MouseButton::WheelDown => Self::WheelDown,
+            CButton::Left => Self::Left,
+            CButton::Right => Self::Right,
+            CButton::Middle => Self::Middle,
         }
     }
 }

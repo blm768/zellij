@@ -5,18 +5,18 @@ use zellij_utils::{
         mouse::{MouseButton, MouseEvent},
         options::Options,
     },
-    termion, zellij_tile,
+    zellij_tile,
 };
 
 use crate::{os_input_output::ClientOsApi, ClientInstruction, CommandIsExecuting};
 use zellij_utils::{
     channels::{SenderWithContext, OPENCALLS},
+    crossterm,
     errors::ContextType,
-    input::{actions::Action, cast_termion_key, config::Config, keybinds::Keybinds},
+    input::{actions::Action, cast_crossterm_key, config::Config, keybinds::Keybinds},
     ipc::{ClientToServerMsg, ExitReason},
 };
 
-use termion::input::TermReadEventsAndRaw;
 use zellij_tile::data::{InputMode, Key};
 
 /// Handles the dispatching of [`Action`]s according to the current
@@ -55,76 +55,52 @@ impl InputHandler {
         }
     }
 
-    /// Main input event loop. Interprets the terminal [`Event`](termion::event::Event)s
+    /// Main input event loop. Interprets the terminal [`Event`](crossterm::event::Event)s
     /// as [`Action`]s according to the current [`InputMode`], and dispatches those actions.
     fn handle_input(&mut self) {
+        use crossterm::event::Event;
         let mut err_ctx = OPENCALLS.with(|ctx| *ctx.borrow());
         err_ctx.add_call(ContextType::StdinHandler);
-        let alt_left_bracket = vec![27, 91];
+        // TODO: still using this and the pasting flag?
         let bracketed_paste_start = vec![27, 91, 50, 48, 48, 126]; // \u{1b}[200~
         let bracketed_paste_end = vec![27, 91, 50, 48, 49, 126]; // \u{1b}[201
 
         if !self.options.disable_mouse_mode {
+            // TODO: needs work
             self.os_input.enable_mouse();
         }
         loop {
             if self.should_exit {
                 break;
             }
-            let stdin_buffer = self.os_input.read_from_stdin();
-            for key_result in stdin_buffer.events_and_raw() {
-                match key_result {
-                    Ok((event, raw_bytes)) => match event {
-                        termion::event::Event::Key(key) => {
-                            let key = cast_termion_key(key);
-                            self.handle_key(&key, raw_bytes);
-                        }
-                        termion::event::Event::Mouse(me) => {
-                            let mouse_event = zellij_utils::input::mouse::MouseEvent::from(me);
-                            self.handle_mouse_event(&mouse_event);
-                        }
-                        termion::event::Event::Unsupported(unsupported_key) => {
-                            // we have to do this because of a bug in termion
-                            // this should be a key event and not an unsupported event
-                            if unsupported_key == alt_left_bracket {
-                                let key = Key::Alt('[');
-                                self.handle_key(&key, raw_bytes);
-                            } else if unsupported_key == bracketed_paste_start {
-                                self.pasting = true;
-                                self.handle_unknown_key(raw_bytes);
-                            } else if unsupported_key == bracketed_paste_end {
-                                self.pasting = false;
-                                self.handle_unknown_key(raw_bytes);
-                            } else {
-                                // this is a hack because termion doesn't recognize certain keys
-                                // in this case we just forward it to the terminal
-                                self.handle_unknown_key(raw_bytes);
-                            }
-                        }
-                    },
-                    Err(err) => panic!("Encountered read error: {:?}", err),
-                }
+            match crossterm::event::read() {
+                Ok(event) => match event {
+                    Event::Key(key) => {
+                        let key = cast_crossterm_key(key);
+                        self.handle_key(&key);
+                    }
+                    Event::Mouse(me) => {
+                        let mouse_event = zellij_utils::input::mouse::MouseEvent::from(me);
+                        self.handle_mouse_event(&mouse_event);
+                    }
+                    Event::Resize(_cols, _rows) => todo!(),
+                },
+                Err(err) => panic!("Encountered read error: {:?}", err),
             }
         }
     }
-    fn handle_unknown_key(&mut self, raw_bytes: Vec<u8>) {
-        if self.mode == InputMode::Normal || self.mode == InputMode::Locked {
-            let action = Action::Write(raw_bytes);
-            self.dispatch_action(action);
-        }
-    }
-    fn handle_key(&mut self, key: &Key, raw_bytes: Vec<u8>) {
+    fn handle_key(&mut self, key: &Key) {
         let keybinds = &self.config.keybinds;
         if self.pasting {
             // we're inside a paste block, if we're in a mode that allows sending text to the
             // terminal, send all text directly without interpreting it
             // otherwise, just discard the input
             if self.mode == InputMode::Normal || self.mode == InputMode::Locked {
-                let action = Action::Write(raw_bytes);
+                let action = Action::Write(todo!());
                 self.dispatch_action(action);
             }
         } else {
-            for action in Keybinds::key_to_actions(key, raw_bytes, &self.mode, keybinds) {
+            for action in Keybinds::key_to_actions(key, &self.mode, keybinds) {
                 let should_exit = self.dispatch_action(action);
                 if should_exit {
                     self.should_exit = true;
